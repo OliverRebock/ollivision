@@ -2,7 +2,11 @@ import subprocess
 
 import pytest
 
-from ollivision.hermes_client import describe_image
+from ollivision.hermes_client import (
+    ANSWER_BEGIN_MARKER,
+    ANSWER_END_MARKER,
+    describe_image,
+)
 
 
 def test_describe_image_returns_dummy_response_in_dummy_mode(monkeypatch):
@@ -12,8 +16,8 @@ def test_describe_image_returns_dummy_response_in_dummy_mode(monkeypatch):
             "mode": "dummy",
             "provider": "hermes_cli",
             "command": "hermes",
-            "model": None,
-            "cli_provider": None,
+            "model": "gpt-5.5",
+            "cli_provider": "openai-codex",
             "image_mode": "auto",
         },
     )
@@ -53,7 +57,12 @@ def test_describe_image_image_mode_builds_expected_command(monkeypatch, tmp_path
 
     def fake_run(cmd, capture_output, text, check):
         captured["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="Szenenbeschreibung", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\nSzenenbeschreibung\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
@@ -62,17 +71,10 @@ def test_describe_image_image_mode_builds_expected_command(monkeypatch, tmp_path
     assert result == "Szenenbeschreibung"
     assert captured["cmd"][:3] == ["hermes", "chat", "-q"]
     assert "-Q" not in captured["cmd"]
-    assert captured["cmd"] == [
-        "hermes",
-        "chat",
-        "-q",
-        "Beschreibe das Bild",
-        "--image",
-        str(img),
-    ]
+    assert captured["cmd"][4:6] == ["--image", str(img)]
 
 
-def test_describe_image_path_only_mode_uses_legacy_prompt(monkeypatch, tmp_path):
+def test_describe_image_prompt_contains_markers(monkeypatch, tmp_path):
     img = tmp_path / "test.jpg"
     img.write_text("x", encoding="utf-8")
 
@@ -84,7 +86,7 @@ def test_describe_image_path_only_mode_uses_legacy_prompt(monkeypatch, tmp_path)
             "command": "hermes",
             "model": None,
             "cli_provider": None,
-            "image_mode": "path_only",
+            "image_mode": "auto",
         },
     )
 
@@ -92,15 +94,109 @@ def test_describe_image_path_only_mode_uses_legacy_prompt(monkeypatch, tmp_path)
 
     def fake_run(cmd, capture_output, text, check):
         captured["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\nok\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
     describe_image(str(img), "Beschreibe das Bild")
 
-    assert captured["cmd"][0] == "hermes"
-    assert captured["cmd"][1] == "-z"
-    assert f"Bildpfad: {img}" in captured["cmd"][2]
+    prompt = captured["cmd"][3]
+    assert ANSWER_BEGIN_MARKER in prompt
+    assert ANSWER_END_MARKER in prompt
+
+
+def test_describe_image_extracts_answer_from_banner_output(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    stdout = (
+        "Hermes banner\n"
+        "session info\n"
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "Kurze Bildantwort\n"
+        f"{ANSWER_END_MARKER}\n"
+        "trailer"
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    result = describe_image(str(img), "Beschreibe das Bild")
+    assert result == "Kurze Bildantwort"
+
+
+def test_describe_image_falls_back_when_markers_missing(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="Fallback Antwort", stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    result = describe_image(str(img), "Beschreibe das Bild")
+    assert result == "Fallback Antwort"
+
+
+def test_describe_image_raises_when_marked_answer_is_empty(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\n\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="keine auswertbare Antwort"):
+        describe_image(str(img), "Beschreibe das Bild")
 
 
 def test_describe_image_adds_model_when_set(monkeypatch, tmp_path):
@@ -123,7 +219,12 @@ def test_describe_image_adds_model_when_set(monkeypatch, tmp_path):
 
     def fake_run(cmd, capture_output, text, check):
         captured["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\nok\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
@@ -153,7 +254,12 @@ def test_describe_image_adds_cli_provider_when_set(monkeypatch, tmp_path):
 
     def fake_run(cmd, capture_output, text, check):
         captured["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\nok\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
@@ -183,24 +289,21 @@ def test_describe_image_adds_cli_provider_and_model_together(monkeypatch, tmp_pa
 
     def fake_run(cmd, capture_output, text, check):
         captured["cmd"] = cmd
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\nok\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
     describe_image(str(img), "Beschreibe das Bild")
 
-    assert captured["cmd"] == [
-        "hermes",
-        "chat",
-        "-q",
-        "Beschreibe das Bild",
-        "--image",
-        str(img),
-        "--provider",
-        "openai-codex",
-        "-m",
-        "gpt-5.3-codex",
-    ]
+    assert captured["cmd"][0:3] == ["hermes", "chat", "-q"]
+    assert "-Q" not in captured["cmd"]
+    assert captured["cmd"][4:6] == ["--image", str(img)]
+    assert captured["cmd"][-4:] == ["--provider", "openai-codex", "-m", "gpt-5.3-codex"]
 
 
 def test_describe_image_raises_when_image_missing(monkeypatch):
@@ -270,7 +373,7 @@ def test_describe_image_raises_when_cli_missing(monkeypatch, tmp_path):
         describe_image(str(img), "Beschreibe das Bild")
 
 
-def test_describe_image_raises_when_output_is_kein_bildzugriff(monkeypatch, tmp_path):
+def test_describe_image_raises_when_output_is_kein_bildzugriff_between_markers(monkeypatch, tmp_path):
     img = tmp_path / "test.jpg"
     img.write_text("x", encoding="utf-8")
 
@@ -287,32 +390,12 @@ def test_describe_image_raises_when_output_is_kein_bildzugriff(monkeypatch, tmp_
     )
 
     def fake_run(cmd, capture_output, text, check):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="KEIN_BILDZUGRIFF", stderr="")
-
-    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
-
-    with pytest.raises(RuntimeError, match="konnte das Bild nicht visuell auswerten"):
-        describe_image(str(img), "Beschreibe das Bild")
-
-
-def test_describe_image_raises_when_output_is_ich_kann_das_bild_nicht_sehen(monkeypatch, tmp_path):
-    img = tmp_path / "test.jpg"
-    img.write_text("x", encoding="utf-8")
-
-    monkeypatch.setattr(
-        "ollivision.hermes_client._load_hermes_config",
-        lambda: {
-            "mode": "live",
-            "provider": "hermes_cli",
-            "command": "hermes",
-            "model": None,
-            "cli_provider": None,
-            "image_mode": "image",
-        },
-    )
-
-    def fake_run(cmd, capture_output, text, check):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="Ich kann das Bild nicht sehen.", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"noise\n{ANSWER_BEGIN_MARKER}\nKEIN_BILDZUGRIFF\n{ANSWER_END_MARKER}\nmore noise",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
@@ -337,10 +420,16 @@ def test_path_only_mode_marks_debug_no_real_analysis(monkeypatch, tmp_path):
     )
 
     def fake_run(cmd, capture_output, text, check):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="Vermutung anhand Pfad", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{ANSWER_BEGIN_MARKER}\nVermutung anhand Pfad\n{ANSWER_END_MARKER}",
+            stderr="",
+        )
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
     result = describe_image(str(img), "Beschreibe das Bild")
 
     assert result.startswith("[DEBUG path_only: keine echte Bildanalyse]")
+    assert "Vermutung anhand Pfad" in result

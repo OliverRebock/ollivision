@@ -3,6 +3,10 @@ import re
 import subprocess
 
 
+ANSWER_BEGIN_MARKER = "OLLIVISION_ANSWER_BEGIN"
+ANSWER_END_MARKER = "OLLIVISION_ANSWER_END"
+
+
 def _load_hermes_config() -> dict[str, str | None]:
     config_path = Path(__file__).resolve().parent.parent / "config.yaml"
     text = config_path.read_text(encoding="utf-8")
@@ -37,6 +41,34 @@ def _load_hermes_config() -> dict[str, str | None]:
     }
 
 
+def _build_marked_prompt(prompt: str) -> str:
+    return (
+        f"{prompt}\n\n"
+        "Antworte ausschließlich zwischen diesen Markern:\n"
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "<deine kurze Antwort>\n"
+        f"{ANSWER_END_MARKER}\n"
+        "Kein Text vor oder nach den Markern."
+    )
+
+
+def _extract_marked_answer(output: str) -> str:
+    text = (output or "").strip()
+    if not text:
+        return ""
+
+    begin = text.find(ANSWER_BEGIN_MARKER)
+    if begin == -1:
+        return text
+
+    begin += len(ANSWER_BEGIN_MARKER)
+    end = text.find(ANSWER_END_MARKER, begin)
+    if end == -1:
+        return text
+
+    return text[begin:end].strip()
+
+
 def _build_hermes_cli_command(
     command: str,
     prompt: str,
@@ -45,8 +77,10 @@ def _build_hermes_cli_command(
     model: str | None = None,
     cli_provider: str | None = None,
 ) -> list[str]:
+    marked_prompt = _build_marked_prompt(prompt)
+
     if image_mode in {"auto", "image"}:
-        cmd = [command, "chat", "-q", prompt, "--image", image_path]
+        cmd = [command, "chat", "-q", marked_prompt, "--image", image_path]
         if cli_provider:
             cmd.extend(["--provider", cli_provider])
         if model:
@@ -58,7 +92,12 @@ def _build_hermes_cli_command(
             f"{prompt}\n"
             f"Bildpfad: {image_path}\n"
             "WICHTIG: Du hast hier keinen direkten Bildzugriff. "
-            "Nutze nur den Pfad-Kontext und markiere die Antwort als Debug-Hinweis."
+            "Nutze nur den Pfad-Kontext und markiere die Antwort als Debug-Hinweis.\n\n"
+            "Antworte ausschließlich zwischen diesen Markern:\n"
+            f"{ANSWER_BEGIN_MARKER}\n"
+            "[DEBUG path_only: <dein Hinweis>]\n"
+            f"{ANSWER_END_MARKER}\n"
+            "Kein Text vor oder nach den Markern."
         )
         cmd = [command, "-z", path_prompt]
         if model:
@@ -120,7 +159,11 @@ def _describe_with_hermes_cli(
     if not output:
         raise RuntimeError("Hermes-CLI lieferte keine Ausgabe")
 
-    if _looks_like_no_image_access(output):
+    answer = _extract_marked_answer(output)
+    if not answer:
+        raise RuntimeError("Hermes-CLI lieferte keine auswertbare Antwort")
+
+    if _looks_like_no_image_access(answer) or _looks_like_no_image_access(output):
         raise RuntimeError(
             "Hermes konnte das Bild nicht visuell auswerten. Prüfe, ob ein visionfähiges Modell aktiv ist."
         )
@@ -128,10 +171,10 @@ def _describe_with_hermes_cli(
     if image_mode == "path_only":
         return (
             "[DEBUG path_only: keine echte Bildanalyse] "
-            + output
+            + answer
         )
 
-    return output
+    return answer
 
 
 def describe_image(image_path: str, prompt: str) -> str:
