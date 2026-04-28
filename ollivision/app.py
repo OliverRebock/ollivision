@@ -1,8 +1,7 @@
 import argparse
+import sys
 
-
-def simulate_camera_capture() -> str:
-    return "simulierte Kameraaufnahme"
+from ollivision.camera import capture_image
 
 
 def get_dummy_hermes_response(capture: str) -> str:
@@ -10,8 +9,8 @@ def get_dummy_hermes_response(capture: str) -> str:
 
 
 def describe_scene() -> str:
-    capture = simulate_camera_capture()
-    return get_dummy_hermes_response(capture)
+    image_path = capture_image("/tmp/ollivision_latest.jpg")
+    return get_dummy_hermes_response(image_path)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,7 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     if args.command == "describe-scene":
-        print(describe_scene())
+        try:
+            print(describe_scene())
+        except RuntimeError as exc:
+            print(f"Fehler: {exc}", file=sys.stderr)
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
