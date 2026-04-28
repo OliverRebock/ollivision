@@ -146,6 +146,108 @@ def test_describe_image_extracts_answer_from_banner_output(monkeypatch, tmp_path
     assert result == "Das Bild zeigt einen Heizungsraum mit isolierten Rohren und Geräten an der Wand."
 
 
+def test_describe_image_uses_last_marker_pair_when_query_is_echoed(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    stdout = (
+        "Query:\n"
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "Schreibe danach direkt die echte Bildbeschreibung.\n"
+        f"{ANSWER_END_MARKER}\n\n"
+        "Hermes Antwort:\n"
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "Das Bild zeigt einen Heizungsraum mit isolierten Rohren und Geräten an der Wand.\n"
+        f"{ANSWER_END_MARKER}"
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    result = describe_image(str(img), "Beschreibe das Bild")
+    assert result == "Das Bild zeigt einen Heizungsraum mit isolierten Rohren und Geräten an der Wand."
+
+
+def test_describe_image_uses_last_complete_marker_pair(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    stdout = (
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "Erster Block\n"
+        f"{ANSWER_END_MARKER}\n"
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "Das Bild zeigt einen hellen Flur mit Türen auf beiden Seiten.\n"
+        f"{ANSWER_END_MARKER}"
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    result = describe_image(str(img), "Beschreibe das Bild")
+    assert result == "Das Bild zeigt einen hellen Flur mit Türen auf beiden Seiten."
+
+
+def test_describe_image_raises_when_only_instruction_text_between_markers(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    stdout = (
+        f"{ANSWER_BEGIN_MARKER}\n"
+        "Schreibe danach direkt die echte Bildbeschreibung.\n"
+        "Beende deine Ausgabe exakt mit der Zeile:\n"
+        f"{ANSWER_END_MARKER}"
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="Prompt-/Instruktionstext statt einer Bildbeschreibung"):
+        describe_image(str(img), "Beschreibe das Bild")
+
+
 def test_describe_image_falls_back_when_markers_missing(monkeypatch, tmp_path):
     img = tmp_path / "test.jpg"
     img.write_text("x", encoding="utf-8")

@@ -48,12 +48,25 @@ def _build_marked_prompt(prompt: str) -> str:
         "Beschreibe ausschließlich den sichtbaren Bildinhalt konkret auf Deutsch.\n"
         "Antworte nicht über deine Fähigkeiten.\n"
         "Gib keine Platzhalter, keine spitzen Klammern und keine Formatbeschreibung aus.\n"
-        "Beginne deine Ausgabe exakt mit der Zeile:\n"
-        f"{ANSWER_BEGIN_MARKER}\n"
-        "Schreibe danach direkt die echte Bildbeschreibung.\n"
-        "Beende deine Ausgabe exakt mit der Zeile:\n"
-        f"{ANSWER_END_MARKER}"
+        f"Die erste Zeile deiner Antwort muss genau {ANSWER_BEGIN_MARKER} sein.\n"
+        "Zwischen erster und letzter Zeile steht nur die echte Bildbeschreibung.\n"
+        f"Die letzte Zeile deiner Antwort muss genau {ANSWER_END_MARKER} sein."
     )
+
+
+_PROMPT_INSTRUCTION_PATTERNS = [
+    r"schreibe\s+danach\s+direkt\s+die\s+echte\s+bildbeschreibung",
+    r"beende\s+deine\s+ausgabe\s+exakt\s+mit\s+der\s+zeile",
+    r"beginne\s+deine\s+ausgabe\s+exakt",
+    r"du\s+erhältst\s+ein\s+echtes\s+bild",
+]
+
+
+def _looks_like_prompt_instruction_text(answer: str) -> bool:
+    text = re.sub(r"\s+", " ", (answer or "").strip().lower())
+    if not text:
+        return False
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in _PROMPT_INSTRUCTION_PATTERNS)
 
 
 def _extract_marked_answer(output: str) -> str:
@@ -61,16 +74,23 @@ def _extract_marked_answer(output: str) -> str:
     if not text:
         return ""
 
-    begin = text.find(ANSWER_BEGIN_MARKER)
-    if begin == -1:
+    pattern = re.compile(
+        rf"{re.escape(ANSWER_BEGIN_MARKER)}\s*(.*?)\s*{re.escape(ANSWER_END_MARKER)}",
+        flags=re.DOTALL,
+    )
+    matches = list(pattern.finditer(text))
+
+    if not matches:
         return text
 
-    begin += len(ANSWER_BEGIN_MARKER)
-    end = text.find(ANSWER_END_MARKER, begin)
-    if end == -1:
-        return text
+    answer = matches[-1].group(1).strip()
 
-    return text[begin:end].strip()
+    if len(matches) == 1 and _looks_like_prompt_instruction_text(answer):
+        raise RuntimeError(
+            "Hermes-Ausgabe enthielt nur Prompt-/Instruktionstext statt einer Bildbeschreibung."
+        )
+
+    return answer
 
 
 def _build_hermes_cli_command(
