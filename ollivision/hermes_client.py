@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -31,25 +32,71 @@ def _load_hermes_config() -> dict[str, str | None]:
         "provider": config.get("provider") or "hermes_cli",
         "command": config.get("command") or "hermes",
         "model": config.get("model"),
+        "image_mode": config.get("image_mode") or "auto",
     }
 
 
-def _build_hermes_cli_command(command: str, prompt: str, model: str | None = None) -> list[str]:
-    cmd = [command, "-z", prompt]
-    if model:
-        cmd.extend(["-m", model])
+def _build_hermes_cli_command(
+    command: str,
+    prompt: str,
+    image_path: str,
+    image_mode: str,
+    model: str | None = None,
+) -> list[str]:
+    if image_mode in {"auto", "image"}:
+        cmd = [command, "chat", "-Q", "-q", prompt, "--image", image_path]
+        if model:
+            cmd.extend(["-m", model])
+        return cmd
 
-    # Für später: echte Bildübergabe kann ergänzt werden (z.B. `hermes chat -q ... --image <path>`)
-    return cmd
+    if image_mode == "path_only":
+        path_prompt = (
+            f"{prompt}\n"
+            f"Bildpfad: {image_path}\n"
+            "WICHTIG: Du hast hier keinen direkten Bildzugriff. "
+            "Nutze nur den Pfad-Kontext und markiere die Antwort als Debug-Hinweis."
+        )
+        cmd = [command, "-z", path_prompt]
+        if model:
+            cmd.extend(["-m", model])
+        return cmd
+
+    raise RuntimeError(f"Ungültiger image_mode: {image_mode}")
 
 
-def _describe_with_hermes_cli(image_path: str, prompt: str, command: str, model: str | None = None) -> str:
-    full_prompt = (
-        f"{prompt}\n"
-        f"Bildpfad: {image_path}\n"
-        "Beschreibe die Szene kurz und präzise auf Deutsch."
+_NO_IMAGE_PATTERNS = [
+    r"\bkein[_\s-]?bildzugriff\b",
+    r"\bcannot access image\b",
+    r"\bunable to view image\b",
+    r"\bi can\s*'?t see the image\b",
+    r"\bich kann das bild nicht sehen\b",
+]
+
+
+def _looks_like_no_image_access(output: str) -> bool:
+    text = output.strip().lower()
+    if not text:
+        return False
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in _NO_IMAGE_PATTERNS)
+
+
+def _describe_with_hermes_cli(
+    image_path: str,
+    prompt: str,
+    command: str,
+    image_mode: str,
+    model: str | None = None,
+) -> str:
+    if not Path(image_path).exists():
+        raise RuntimeError(f"Bilddatei existiert nicht: {image_path}")
+
+    cmd = _build_hermes_cli_command(
+        command=command,
+        prompt=prompt,
+        image_path=image_path,
+        image_mode=image_mode,
+        model=model,
     )
-    cmd = _build_hermes_cli_command(command=command, prompt=full_prompt, model=model)
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -67,6 +114,17 @@ def _describe_with_hermes_cli(image_path: str, prompt: str, command: str, model:
     if not output:
         raise RuntimeError("Hermes-CLI lieferte keine Ausgabe")
 
+    if _looks_like_no_image_access(output):
+        raise RuntimeError(
+            "Hermes konnte das Bild nicht visuell auswerten. Prüfe, ob ein visionfähiges Modell aktiv ist."
+        )
+
+    if image_mode == "path_only":
+        return (
+            "[DEBUG path_only: keine echte Bildanalyse] "
+            + output
+        )
+
     return output
 
 
@@ -82,6 +140,7 @@ def describe_image(image_path: str, prompt: str) -> str:
             image_path=image_path,
             prompt=prompt,
             command=str(cfg["command"]),
+            image_mode=str(cfg["image_mode"]),
             model=cfg["model"],
         )
 
