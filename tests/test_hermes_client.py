@@ -108,6 +108,7 @@ def test_describe_image_prompt_contains_markers(monkeypatch, tmp_path):
     prompt = captured["cmd"][3]
     assert ANSWER_BEGIN_MARKER in prompt
     assert ANSWER_END_MARKER in prompt
+    assert "<deine kurze Antwort>" not in prompt
 
 
 def test_describe_image_extracts_answer_from_banner_output(monkeypatch, tmp_path):
@@ -195,7 +196,49 @@ def test_describe_image_raises_when_marked_answer_is_empty(monkeypatch, tmp_path
 
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
-    with pytest.raises(RuntimeError, match="keine auswertbare Antwort"):
+    with pytest.raises(RuntimeError, match="Platzhalter statt einer Bildbeschreibung"):
+        describe_image(str(img), "Beschreibe das Bild")
+
+
+@pytest.mark.parametrize(
+    "placeholder",
+    [
+        "<deine kurze Antwort>",
+        "deine kurze Antwort",
+        "<antwort>",
+        "Antwort hier",
+    ],
+)
+def test_describe_image_raises_when_marked_answer_is_placeholder(monkeypatch, tmp_path, placeholder):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    stdout = (
+        "Hermes banner\n"
+        f"{ANSWER_BEGIN_MARKER}\n"
+        f"{placeholder}\n"
+        f"{ANSWER_END_MARKER}\n"
+        "trailer"
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="Platzhalter statt einer Bildbeschreibung"):
         describe_image(str(img), "Beschreibe das Bild")
 
 

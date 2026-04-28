@@ -44,11 +44,15 @@ def _load_hermes_config() -> dict[str, str | None]:
 def _build_marked_prompt(prompt: str) -> str:
     return (
         f"{prompt}\n\n"
-        "Antworte ausschließlich zwischen diesen Markern:\n"
+        "Du erhältst ein echtes Bild als Anhang.\n"
+        "Beschreibe ausschließlich den sichtbaren Bildinhalt kurz und konkret auf Deutsch.\n"
+        "Gib keine Erklärungen über deine Fähigkeiten aus.\n"
+        "Gib keine Platzhalter aus.\n"
+        "Gib keine spitzen Klammern aus.\n"
+        "Antworte exakt in diesem Format:\n"
         f"{ANSWER_BEGIN_MARKER}\n"
-        "<deine kurze Antwort>\n"
-        f"{ANSWER_END_MARKER}\n"
-        "Kein Text vor oder nach den Markern."
+        "ein bis zwei deutsche Sätze mit konkreter Bildbeschreibung\n"
+        f"{ANSWER_END_MARKER}"
     )
 
 
@@ -123,6 +127,22 @@ def _looks_like_no_image_access(output: str) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in _NO_IMAGE_PATTERNS)
 
 
+_INVALID_PLACEHOLDER_PATTERNS = [
+    r"^<\s*deine\s+kurze\s+antwort\s*>$",
+    r"^deine\s+kurze\s+antwort$",
+    r"^<\s*antwort\s*>$",
+    r"^antwort\s+hier$",
+]
+
+
+def _is_invalid_placeholder_answer(answer: str) -> bool:
+    text = (answer or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    return any(re.fullmatch(pattern, lowered, flags=re.IGNORECASE) for pattern in _INVALID_PLACEHOLDER_PATTERNS)
+
+
 def _describe_with_hermes_cli(
     image_path: str,
     prompt: str,
@@ -160,8 +180,8 @@ def _describe_with_hermes_cli(
         raise RuntimeError("Hermes-CLI lieferte keine Ausgabe")
 
     answer = _extract_marked_answer(output)
-    if not answer:
-        raise RuntimeError("Hermes-CLI lieferte keine auswertbare Antwort")
+    if _is_invalid_placeholder_answer(answer):
+        raise RuntimeError("Hermes lieferte nur einen Platzhalter statt einer Bildbeschreibung.")
 
     if _looks_like_no_image_access(answer) or _looks_like_no_image_access(output):
         raise RuntimeError(
