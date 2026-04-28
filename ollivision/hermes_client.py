@@ -32,6 +32,7 @@ def _load_hermes_config() -> dict[str, str | None]:
         "provider": config.get("provider") or "hermes_cli",
         "command": config.get("command") or "hermes",
         "model": config.get("model"),
+        "cli_provider": config.get("cli_provider"),
         "image_mode": config.get("image_mode") or "auto",
     }
 
@@ -42,9 +43,12 @@ def _build_hermes_cli_command(
     image_path: str,
     image_mode: str,
     model: str | None = None,
+    cli_provider: str | None = None,
 ) -> list[str]:
     if image_mode in {"auto", "image"}:
-        cmd = [command, "chat", "-Q", "-q", prompt, "--image", image_path]
+        cmd = [command, "chat", "-q", prompt, "--image", image_path]
+        if cli_provider:
+            cmd.extend(["--provider", cli_provider])
         if model:
             cmd.extend(["-m", model])
         return cmd
@@ -86,6 +90,7 @@ def _describe_with_hermes_cli(
     command: str,
     image_mode: str,
     model: str | None = None,
+    cli_provider: str | None = None,
 ) -> str:
     if not Path(image_path).exists():
         raise RuntimeError(f"Bilddatei existiert nicht: {image_path}")
@@ -96,6 +101,7 @@ def _describe_with_hermes_cli(
         image_path=image_path,
         image_mode=image_mode,
         model=model,
+        cli_provider=cli_provider,
     )
 
     try:
@@ -142,6 +148,7 @@ def describe_image(image_path: str, prompt: str) -> str:
             command=str(cfg["command"]),
             image_mode=str(cfg["image_mode"]),
             model=cfg["model"],
+            cli_provider=cfg["cli_provider"],
         )
 
     raise RuntimeError(f"Unbekannter Hermes-Provider: {provider}")

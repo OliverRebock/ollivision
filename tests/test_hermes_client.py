@@ -13,6 +13,7 @@ def test_describe_image_returns_dummy_response_in_dummy_mode(monkeypatch):
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "auto",
         },
     )
@@ -43,6 +44,7 @@ def test_describe_image_image_mode_builds_expected_command(monkeypatch, tmp_path
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "image",
         },
     )
@@ -58,10 +60,16 @@ def test_describe_image_image_mode_builds_expected_command(monkeypatch, tmp_path
     result = describe_image(str(img), "Beschreibe das Bild")
 
     assert result == "Szenenbeschreibung"
-    assert captured["cmd"][:4] == ["hermes", "chat", "-Q", "-q"]
-    assert "--image" in captured["cmd"]
-    idx = captured["cmd"].index("--image")
-    assert captured["cmd"][idx + 1] == str(img)
+    assert captured["cmd"][:3] == ["hermes", "chat", "-q"]
+    assert "-Q" not in captured["cmd"]
+    assert captured["cmd"] == [
+        "hermes",
+        "chat",
+        "-q",
+        "Beschreibe das Bild",
+        "--image",
+        str(img),
+    ]
 
 
 def test_describe_image_path_only_mode_uses_legacy_prompt(monkeypatch, tmp_path):
@@ -75,6 +83,7 @@ def test_describe_image_path_only_mode_uses_legacy_prompt(monkeypatch, tmp_path)
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "path_only",
         },
     )
@@ -105,6 +114,7 @@ def test_describe_image_adds_model_when_set(monkeypatch, tmp_path):
             "provider": "hermes_cli",
             "command": "hermes",
             "model": "gpt-5.3-codex",
+            "cli_provider": None,
             "image_mode": "image",
         },
     )
@@ -123,6 +133,76 @@ def test_describe_image_adds_model_when_set(monkeypatch, tmp_path):
     assert "gpt-5.3-codex" in captured["cmd"]
 
 
+def test_describe_image_adds_cli_provider_when_set(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": "openai-codex",
+            "image_mode": "image",
+        },
+    )
+
+    captured = {}
+
+    def fake_run(cmd, capture_output, text, check):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    describe_image(str(img), "Beschreibe das Bild")
+
+    assert "--provider" in captured["cmd"]
+    assert "openai-codex" in captured["cmd"]
+
+
+def test_describe_image_adds_cli_provider_and_model_together(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": "gpt-5.3-codex",
+            "cli_provider": "openai-codex",
+            "image_mode": "image",
+        },
+    )
+
+    captured = {}
+
+    def fake_run(cmd, capture_output, text, check):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    describe_image(str(img), "Beschreibe das Bild")
+
+    assert captured["cmd"] == [
+        "hermes",
+        "chat",
+        "-q",
+        "Beschreibe das Bild",
+        "--image",
+        str(img),
+        "--provider",
+        "openai-codex",
+        "-m",
+        "gpt-5.3-codex",
+    ]
+
+
 def test_describe_image_raises_when_image_missing(monkeypatch):
     monkeypatch.setattr(
         "ollivision.hermes_client._load_hermes_config",
@@ -131,6 +211,7 @@ def test_describe_image_raises_when_image_missing(monkeypatch):
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "image",
         },
     )
@@ -150,6 +231,7 @@ def test_describe_image_raises_readable_error_when_cli_fails(monkeypatch, tmp_pa
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "auto",
         },
     )
@@ -174,6 +256,7 @@ def test_describe_image_raises_when_cli_missing(monkeypatch, tmp_path):
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "auto",
         },
     )
@@ -198,6 +281,7 @@ def test_describe_image_raises_when_output_is_kein_bildzugriff(monkeypatch, tmp_
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "image",
         },
     )
@@ -222,6 +306,7 @@ def test_describe_image_raises_when_output_is_ich_kann_das_bild_nicht_sehen(monk
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "image",
         },
     )
@@ -246,6 +331,7 @@ def test_path_only_mode_marks_debug_no_real_analysis(monkeypatch, tmp_path):
             "provider": "hermes_cli",
             "command": "hermes",
             "model": None,
+            "cli_provider": None,
             "image_mode": "path_only",
         },
     )
