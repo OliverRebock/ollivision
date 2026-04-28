@@ -2,5 +2,8 @@ camera:
   mode: simulated
 hermes:
   mode: "dummy"
+  provider: "hermes_cli"
+  command: "hermes"
+  model: null
   base_url: "http://localhost:8000"
   describe_endpoint: "/api/vision/describe"
