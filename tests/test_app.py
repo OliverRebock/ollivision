@@ -3,15 +3,19 @@ import pytest
 from ollivision.app import describe_scene, main
 
 
-def test_describe_scene_returns_dummy_response(monkeypatch):
+def test_describe_scene_calls_hermes_client(monkeypatch):
     monkeypatch.setattr("ollivision.app.capture_image", lambda _: "/tmp/ollivision_latest.jpg")
+    monkeypatch.setattr("ollivision.app.describe_image", lambda image_path, prompt: f"Beschreibung für {image_path} mit {prompt}")
+
     result = describe_scene()
-    assert "Dummy Hermes Antwort" in result
-    assert "/tmp/ollivision_latest.jpg" in result
+
+    assert "Beschreibung für /tmp/ollivision_latest.jpg" in result
 
 
 def test_cli_describe_scene_outputs_response(capsys, monkeypatch):
     monkeypatch.setattr("ollivision.app.capture_image", lambda _: "/tmp/ollivision_latest.jpg")
+    monkeypatch.setattr("ollivision.app.describe_image", lambda image_path, prompt: "Dummy Hermes Antwort für /tmp/ollivision_latest.jpg")
+
     main(["describe-scene"])
     out = capsys.readouterr().out.strip()
     assert "Dummy Hermes Antwort" in out

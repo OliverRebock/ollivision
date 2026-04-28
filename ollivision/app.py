@@ -2,15 +2,13 @@ import argparse
 import sys
 
 from ollivision.camera import capture_image
-
-
-def get_dummy_hermes_response(capture: str) -> str:
-    return f"Dummy Hermes Antwort für {capture}"
+from ollivision.hermes_client import describe_image
 
 
 def describe_scene() -> str:
     image_path = capture_image("/tmp/ollivision_latest.jpg")
-    return get_dummy_hermes_response(image_path)
+    prompt = "Beschreibe die Szene kurz auf Deutsch."
+    return describe_image(image_path, prompt)
 
 
 def build_parser() -> argparse.ArgumentParser:
