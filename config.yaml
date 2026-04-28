@@ -1,7 +1,7 @@
 camera:
   mode: simulated
 hermes:
-  mode: "dummy"
+  mode: "live"
   provider: "hermes_cli"
   command: "hermes"
   model: "gpt-5.5"
