@@ -45,13 +45,13 @@ def _build_marked_prompt(prompt: str) -> str:
     return (
         f"{prompt}\n\n"
         "Du erhältst ein echtes Bild als Anhang.\n"
-        "Beschreibe ausschließlich den sichtbaren Bildinhalt kurz und konkret auf Deutsch.\n"
-        "Gib keine Erklärungen über deine Fähigkeiten aus.\n"
-        "Gib keine Platzhalter aus.\n"
-        "Gib keine spitzen Klammern aus.\n"
-        "Antworte exakt in diesem Format:\n"
+        "Beschreibe ausschließlich den sichtbaren Bildinhalt konkret auf Deutsch.\n"
+        "Antworte nicht über deine Fähigkeiten.\n"
+        "Gib keine Platzhalter, keine spitzen Klammern und keine Formatbeschreibung aus.\n"
+        "Beginne deine Ausgabe exakt mit der Zeile:\n"
         f"{ANSWER_BEGIN_MARKER}\n"
-        "ein bis zwei deutsche Sätze mit konkreter Bildbeschreibung\n"
+        "Schreibe danach direkt die echte Bildbeschreibung.\n"
+        "Beende deine Ausgabe exakt mit der Zeile:\n"
         f"{ANSWER_END_MARKER}"
     )
 
@@ -134,6 +134,8 @@ _INVALID_PLACEHOLDER_PATTERNS = [
     r"^antwort\s+hier$",
 ]
 
+_FORMAT_TEXT_PATTERN = r"ein\s+bis\s+zwei\s+deutsche\s+sätze\s+mit\s+konkreter\s+bildbeschreibung"
+
 
 def _is_invalid_placeholder_answer(answer: str) -> bool:
     text = (answer or "").strip()
@@ -141,6 +143,16 @@ def _is_invalid_placeholder_answer(answer: str) -> bool:
         return True
     lowered = text.lower()
     return any(re.fullmatch(pattern, lowered, flags=re.IGNORECASE) for pattern in _INVALID_PLACEHOLDER_PATTERNS)
+
+
+def _is_invalid_formattext_answer(answer: str) -> bool:
+    text = (answer or "").strip().lower()
+    if not text:
+        return False
+    normalized = re.sub(r"\s+", " ", text)
+    if re.fullmatch(rf"<?\s*{_FORMAT_TEXT_PATTERN}\s*>?", normalized, flags=re.IGNORECASE):
+        return True
+    return False
 
 
 def _describe_with_hermes_cli(
@@ -182,6 +194,8 @@ def _describe_with_hermes_cli(
     answer = _extract_marked_answer(output)
     if _is_invalid_placeholder_answer(answer):
         raise RuntimeError("Hermes lieferte nur einen Platzhalter statt einer Bildbeschreibung.")
+    if _is_invalid_formattext_answer(answer):
+        raise RuntimeError("Hermes lieferte nur Formattext statt einer Bildbeschreibung.")
 
     if _looks_like_no_image_access(answer) or _looks_like_no_image_access(output):
         raise RuntimeError(

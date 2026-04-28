@@ -109,6 +109,7 @@ def test_describe_image_prompt_contains_markers(monkeypatch, tmp_path):
     assert ANSWER_BEGIN_MARKER in prompt
     assert ANSWER_END_MARKER in prompt
     assert "<deine kurze Antwort>" not in prompt
+    assert "ein bis zwei deutsche Sätze mit konkreter Bildbeschreibung" not in prompt
 
 
 def test_describe_image_extracts_answer_from_banner_output(monkeypatch, tmp_path):
@@ -131,7 +132,7 @@ def test_describe_image_extracts_answer_from_banner_output(monkeypatch, tmp_path
         "Hermes banner\n"
         "session info\n"
         f"{ANSWER_BEGIN_MARKER}\n"
-        "Kurze Bildantwort\n"
+        "Das Bild zeigt einen Heizungsraum mit isolierten Rohren und Geräten an der Wand.\n"
         f"{ANSWER_END_MARKER}\n"
         "trailer"
     )
@@ -142,7 +143,7 @@ def test_describe_image_extracts_answer_from_banner_output(monkeypatch, tmp_path
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
     result = describe_image(str(img), "Beschreibe das Bild")
-    assert result == "Kurze Bildantwort"
+    assert result == "Das Bild zeigt einen Heizungsraum mit isolierten Rohren und Geräten an der Wand."
 
 
 def test_describe_image_falls_back_when_markers_missing(monkeypatch, tmp_path):
@@ -197,6 +198,40 @@ def test_describe_image_raises_when_marked_answer_is_empty(monkeypatch, tmp_path
     monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
 
     with pytest.raises(RuntimeError, match="Platzhalter statt einer Bildbeschreibung"):
+        describe_image(str(img), "Beschreibe das Bild")
+
+
+def test_describe_image_raises_when_marked_answer_is_formattext(monkeypatch, tmp_path):
+    img = tmp_path / "test.jpg"
+    img.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "ollivision.hermes_client._load_hermes_config",
+        lambda: {
+            "mode": "live",
+            "provider": "hermes_cli",
+            "command": "hermes",
+            "model": None,
+            "cli_provider": None,
+            "image_mode": "image",
+        },
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=(
+                f"{ANSWER_BEGIN_MARKER}\n"
+                "ein bis zwei deutsche Sätze mit konkreter Bildbeschreibung\n"
+                f"{ANSWER_END_MARKER}"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("ollivision.hermes_client.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="Formattext statt einer Bildbeschreibung"):
         describe_image(str(img), "Beschreibe das Bild")
 
 
